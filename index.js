@@ -1,4 +1,4 @@
-/* Header Shield 1.1.0
+/* Header Shield 1.1.1
  * A SillyTavern third-party extension.
  * What it does, in plain terms:
  *  - Before each generation it builds a short, per-request random
@@ -19,6 +19,8 @@
  */
 
 const EXTENSION_NAME = 'Header Shield';
+const EXTENSION_ID = 'header-shield';
+const EXTENSION_FOLDER = 'scripts/extensions/third-party/header-shield';
 const PROMPT_KEY = 'header_shield';
 const MARKER = '[header-shield]';
 
@@ -59,7 +61,10 @@ function ctx() {
 function loadSettings() {
     try {
         const c = ctx();
-        const stored = c?.extensionSettings?.[PROMPT_KEY] || c?.extensionSettings?.headerShield || {};
+        const stored = c?.extensionSettings?.[EXTENSION_ID]
+            || c?.extensionSettings?.[PROMPT_KEY]
+            || c?.extensionSettings?.headerShield
+            || {};
         settings = { ...DEFAULT_SETTINGS, ...stored };
         // Preset wins for length unless the user edited the numbers.
         if (PRESETS[settings.preset]) {
@@ -85,7 +90,7 @@ function saveSettings() {
     try {
         const c = ctx();
         if (!c?.extensionSettings) return;
-        c.extensionSettings[PROMPT_KEY] = settings;
+        c.extensionSettings[EXTENSION_ID] = settings;
         c.saveSettingsDebounced?.();
     } catch (e) {
         console.warn('[Header Shield] saveSettings failed', e);
@@ -312,7 +317,8 @@ function renderLog() {
 
 function bindSettingsUI() {
     const root = document.getElementById('header-shield-settings');
-    if (!root) return;
+    if (!root || root.dataset.bound === '1') return;
+    root.dataset.bound = '1';
     const q = (id) => root.querySelector(id);
     const enabled = q('#hs-enabled');
     const preset = q('#hs-preset');
@@ -382,20 +388,45 @@ function bindSettingsUI() {
     renderLog();
 }
 
+async function loadSettingsUI() {
+    // SillyTavern does NOT auto-load settings.html. The extension must
+    // fetch it and append it to the Extensions settings drawer.
+    // Newer versions use #extensions_settings2, older ones #extensions_settings.
+    try {
+        const existing = document.getElementById('header-shield-settings');
+        if (existing) { bindSettingsUI(); return; }
+        const container = document.getElementById('extensions_settings2')
+            || document.getElementById('extensions_settings');
+        if (!container) {
+            console.warn('[Header Shield] extensions settings container not found yet');
+            return;
+        }
+        let html = '';
+        if (typeof globalThis.$?.get === 'function') {
+            html = await globalThis.$.get(`${EXTENSION_FOLDER}/settings.html`);
+        } else {
+            const res = await fetch(`${EXTENSION_FOLDER}/settings.html`);
+            if (!res.ok) throw new Error(`settings.html HTTP ${res.status}`);
+            html = await res.text();
+        }
+        const template = document.createElement('template');
+        template.innerHTML = html.trim();
+        container.appendChild(template.content.cloneNode(true));
+        bindSettingsUI();
+    } catch (e) {
+        console.error('[Header Shield] Failed to load settings.html', e);
+        toast('error', '没能加载设置面板 settings.html，请刷新酒馆或检查扩展文件是否完整。');
+    }
+}
+
 async function init() {
     loadSettings();
-
-    // SillyTavern loads settings.html automatically for an extension
-    // when it is present in the extension folder. No manual fetch or
-    // render call is needed here.
-
-    // Wire up the UI once it is in the DOM.
-    const observer = new MutationObserver(() => {
-        if (document.getElementById('header-shield-settings')) bindSettingsUI();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    // Also try immediately, in case the panel is already present.
-    setTimeout(bindSettingsUI, 500);
+    await loadSettingsUI();
+    // Retry once shortly after load, in case the settings drawer
+    // was not in the DOM yet when init ran.
+    setTimeout(() => {
+        if (!document.getElementById('header-shield-settings')) loadSettingsUI();
+    }, 1000);
 
     const c = ctx();
     const events = c?.eventSource;
