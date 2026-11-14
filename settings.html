@@ -1,7 +1,7 @@
 <div id="header-shield-settings" class="hs-settings">
   <div class="inline-drawer-header">
     <b>Header Shield / 头部护盾</b>
-    <span class="hs-badge">v1.0.0</span>
+    <span class="hs-badge">v<span id="hs-current-version">1.1.2</span></span>
   </div>
   <div class="hs-note">
     每次生成前，在提示词最前面加入一段每次都不同的随机头部，降低按前缀缓存 / 指纹路由命中的可能。
@@ -54,6 +54,14 @@
   </div>
 
   <pre id="hs-preview" class="hs-preview">点“生成一份预览”看一段随机头部。</pre>
+
+  <h4>更新</h4>
+  <div id="hs-update-status" class="hs-note">还没检查过。点下面的按钮，会去 GitHub 仓库看有没有新版本。</div>
+  <div class="hs-row">
+    <button id="hs-check-update" class="menu_button" type="button">检查并更新</button>
+    <button id="hs-open-repo" class="menu_button" type="button">打开仓库</button>
+  </div>
+  <div class="hs-note">检查只是比对版本号，不会自动改文件。如果有新版，请在酒馆扩展列表里点这个扩展的“更新”，更新完刷新酒馆。</div>
 
   <h4>最近生成记录（模型比对）</h4>
   <div id="hs-log" class="hs-log">还没有记录。发一条消息后这里会显示模型名。</div>

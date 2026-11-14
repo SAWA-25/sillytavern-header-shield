@@ -1,4 +1,4 @@
-/* Header Shield 1.1.1
+/* Header Shield 1.1.2
  * A SillyTavern third-party extension.
  * What it does, in plain terms:
  *  - Before each generation it builds a short, per-request random
@@ -21,6 +21,9 @@
 const EXTENSION_NAME = 'Header Shield';
 const EXTENSION_ID = 'header-shield';
 const EXTENSION_FOLDER = 'scripts/extensions/third-party/header-shield';
+const CURRENT_VERSION = '1.1.2';
+const REPO_URL = 'https://github.com/SAWA-25/sillytavern-header-shield';
+const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/SAWA-25/sillytavern-header-shield/main/manifest.json';
 const PROMPT_KEY = 'header_shield';
 const MARKER = '[header-shield]';
 
@@ -315,6 +318,43 @@ function renderLog() {
     }).join('');
 }
 
+function compareVersions(a, b) {
+    const pa = String(a || '0').split('.').map(n => parseInt(n, 10) || 0);
+    const pb = String(b || '0').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d !== 0) return d;
+    }
+    return 0;
+}
+
+async function checkUpdate() {
+    const statusEl = document.getElementById('hs-update-status');
+    const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
+    setStatus('正在检查更新…');
+    try {
+        const res = await fetch(`${REMOTE_MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const remote = await res.json();
+        const latest = String(remote?.version || '').trim();
+        if (!latest) throw new Error('远程 manifest 里没有版本号');
+        const now = new Date().toLocaleTimeString();
+        if (compareVersions(latest, CURRENT_VERSION) > 0) {
+            setStatus(`发现新版 ${latest}，你现在是 ${CURRENT_VERSION}（${now} 检查）。请在酒馆扩展列表里点 Header Shield 的“更新”，更新完刷新酒馆。`);
+            toast('warning', `发现新版 ${latest}，请在扩展列表里更新 Header Shield。`);
+            return { current: CURRENT_VERSION, latest, hasUpdate: true };
+        }
+        setStatus(`已是最新版 ${CURRENT_VERSION}（${now} 检查）。`);
+        toast('success', `Header Shield 已是最新版 ${CURRENT_VERSION}`);
+        return { current: CURRENT_VERSION, latest, hasUpdate: false };
+    } catch (e) {
+        console.warn('[Header Shield] checkUpdate failed', e);
+        setStatus(`检查失败：${e?.message || e}。请确认能打开 GitHub，或直接打开仓库看最新版。`);
+        toast('error', '检查更新失败，请稍后再试。');
+        return { current: CURRENT_VERSION, latest: '', hasUpdate: false, error: String(e?.message || e) };
+    }
+}
+
 function bindSettingsUI() {
     const root = document.getElementById('header-shield-settings');
     if (!root || root.dataset.bound === '1') return;
@@ -335,6 +375,9 @@ function bindSettingsUI() {
     const testBtn = q('#hs-test');
     const preview = q('#hs-preview');
     const saveBtn = q('#hs-save');
+    const checkBtn = q('#hs-check-update');
+    const repoBtn = q('#hs-open-repo');
+    const versionEl = q('#hs-current-version');
 
     if (enabled) enabled.checked = !!settings.enabled;
     if (preset) preset.value = settings.preset;
@@ -348,6 +391,9 @@ function bindSettingsUI() {
     if (fictionEl) fictionEl.checked = !!settings.fictionAnchorEnabled;
     if (authorEl) authorEl.value = settings.authorName || 'suki';
     if (fictionTextEl) fictionTextEl.value = settings.fictionAnchorText || '';
+    if (versionEl) versionEl.textContent = CURRENT_VERSION;
+    checkBtn?.addEventListener('click', () => { checkUpdate(); });
+    repoBtn?.addEventListener('click', () => { globalThis.open(REPO_URL, '_blank'); });
 
     preset?.addEventListener('change', () => {
         const p = PRESETS[preset.value];
@@ -451,7 +497,8 @@ async function init() {
 
     // Expose a small debug handle for the settings panel / console.
     globalThis.HeaderShield = {
-        buildHeader, applyShield, loadSettings, saveSettings,
+        buildHeader, applyShield, loadSettings, saveSettings, checkUpdate,
+        version: CURRENT_VERSION,
         getSettings: () => ({ ...settings }),
         getLastStats: () => lastStats,
         getLog: () => [...logEntries],
