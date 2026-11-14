@@ -1,4 +1,4 @@
-/* Header Shield 1.1.2
+/* Header Shield 1.1.3
  * A SillyTavern third-party extension.
  * What it does, in plain terms:
  *  - Before each generation it builds a short, per-request random
@@ -19,9 +19,16 @@
  */
 
 const EXTENSION_NAME = 'Header Shield';
-const EXTENSION_ID = 'header-shield';
-const EXTENSION_FOLDER = 'scripts/extensions/third-party/header-shield';
-const CURRENT_VERSION = '1.1.2';
+// Folder name as installed from Git: the repo name, not "header-shield".
+// MemoryLayers (which works on this same instance) uses the same form:
+//   renderExtensionTemplateAsync('third-party/SillyTavern-MemoryLayers', 'settings')
+const EXTENSION_ID = 'third-party/sillytavern-header-shield';
+const EXTENSION_FOLDER_CANDIDATES = [
+    'third-party/sillytavern-header-shield',
+    'third-party/header-shield',
+];
+const SETTINGS_KEY = 'header-shield';
+const CURRENT_VERSION = '1.1.3';
 const REPO_URL = 'https://github.com/SAWA-25/sillytavern-header-shield';
 const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/SAWA-25/sillytavern-header-shield/main/manifest.json';
 const PROMPT_KEY = 'header_shield';
@@ -64,7 +71,7 @@ function ctx() {
 function loadSettings() {
     try {
         const c = ctx();
-        const stored = c?.extensionSettings?.[EXTENSION_ID]
+        const stored = c?.extensionSettings?.[SETTINGS_KEY]
             || c?.extensionSettings?.[PROMPT_KEY]
             || c?.extensionSettings?.headerShield
             || {};
@@ -93,7 +100,7 @@ function saveSettings() {
     try {
         const c = ctx();
         if (!c?.extensionSettings) return;
-        c.extensionSettings[EXTENSION_ID] = settings;
+        c.extensionSettings[SETTINGS_KEY] = settings;
         c.saveSettingsDebounced?.();
     } catch (e) {
         console.warn('[Header Shield] saveSettings failed', e);
@@ -435,44 +442,77 @@ function bindSettingsUI() {
 }
 
 async function loadSettingsUI() {
-    // SillyTavern does NOT auto-load settings.html. The extension must
-    // fetch it and append it to the Extensions settings drawer.
-    // Newer versions use #extensions_settings2, older ones #extensions_settings.
-    try {
-        const existing = document.getElementById('header-shield-settings');
-        if (existing) { bindSettingsUI(); return; }
-        const container = document.getElementById('extensions_settings2')
-            || document.getElementById('extensions_settings');
-        if (!container) {
-            console.warn('[Header Shield] extensions settings container not found yet');
-            return;
-        }
-        let html = '';
-        if (typeof globalThis.$?.get === 'function') {
-            html = await globalThis.$.get(`${EXTENSION_FOLDER}/settings.html`);
-        } else {
-            const res = await fetch(`${EXTENSION_FOLDER}/settings.html`);
-            if (!res.ok) throw new Error(`settings.html HTTP ${res.status}`);
-            html = await res.text();
-        }
-        const template = document.createElement('template');
-        template.innerHTML = html.trim();
-        container.appendChild(template.content.cloneNode(true));
-        bindSettingsUI();
-    } catch (e) {
-        console.error('[Header Shield] Failed to load settings.html', e);
-        toast('error', '没能加载设置面板 settings.html，请刷新酒馆或检查扩展文件是否完整。');
+    // Official pattern, copied from SillyTavern core + MemoryLayers
+    // (which renders fine on this same instance):
+    //   const html = await context.renderExtensionTemplateAsync(
+    //       'third-party/<folder-name>', 'settings');
+    //   document.getElementById('extensions_settings')
+    //       .insertAdjacentHTML('beforeend', html);
+    // The previous version fetched a hard-coded wrong path
+    // 'scripts/extensions/third-party/header-shield/settings.html'
+    // (the installed folder is 'sillytavern-header-shield'), so the
+    // fetch 404'd and no panel ever appeared — even though index.js
+    // itself ran fine, which is why the toast still showed.
+    if (document.getElementById('header-shield-settings')) { bindSettingsUI(); return true; }
+    const container = document.getElementById('extensions_settings')
+        || document.getElementById('extensions_settings2');
+    if (!container) {
+        console.warn('[Header Shield] extensions settings container not found yet');
+        return false;
     }
+    let html = '';
+    const c = ctx();
+    if (typeof c?.renderExtensionTemplateAsync === 'function') {
+        for (const name of EXTENSION_FOLDER_CANDIDATES) {
+            try {
+                html = await c.renderExtensionTemplateAsync(name, 'settings');
+                if (html && String(html).includes('header-shield-settings')) break;
+                html = '';
+            } catch (e) {
+                console.warn(`[Header Shield] renderExtensionTemplateAsync failed for ${name}`, e);
+            }
+        }
+    }
+    if (!html) {
+        // Fallback: plain fetch, trying both possible folder names.
+        for (const name of EXTENSION_FOLDER_CANDIDATES) {
+            try {
+                const res = await fetch(`scripts/extensions/${name}/settings.html`, { cache: 'no-store' });
+                if (res.ok) { html = await res.text(); break; }
+                console.warn(`[Header Shield] settings.html fetch ${name}: HTTP ${res.status}`);
+            } catch (e) {
+                console.warn(`[Header Shield] settings.html fetch failed for ${name}`, e);
+            }
+        }
+    }
+    if (!html) {
+        console.error('[Header Shield] Failed to load settings.html from all candidates');
+        return false;
+    }
+    container.insertAdjacentHTML('beforeend', html);
+    bindSettingsUI();
+    return true;
+}
+
+async function loadSettingsUIWithRetries() {
+    for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+            if (await loadSettingsUI()) return true;
+        } catch (e) {
+            console.warn('[Header Shield] loadSettingsUI attempt failed', e);
+        }
+        await new Promise(r => setTimeout(r, 1000));
+    }
+    toast('error', '没能加载设置面板 settings.html，请刷新酒馆，或在控制台看 [Header Shield] 的报错。');
+    return false;
 }
 
 async function init() {
     loadSettings();
-    await loadSettingsUI();
-    // Retry once shortly after load, in case the settings drawer
-    // was not in the DOM yet when init ran.
-    setTimeout(() => {
-        if (!document.getElementById('header-shield-settings')) loadSettingsUI();
-    }, 1000);
+    // Like MemoryLayers: wait for jQuery ready, then render settings.
+    // The drawer container may not be ready when the script first runs,
+    // so retry for up to ~10s instead of giving up after one attempt.
+    loadSettingsUIWithRetries();
 
     const c = ctx();
     const events = c?.eventSource;
@@ -497,7 +537,7 @@ async function init() {
 
     // Expose a small debug handle for the settings panel / console.
     globalThis.HeaderShield = {
-        buildHeader, applyShield, loadSettings, saveSettings, checkUpdate,
+        buildHeader, applyShield, loadSettings, saveSettings, checkUpdate, loadSettingsUI,
         version: CURRENT_VERSION,
         getSettings: () => ({ ...settings }),
         getLastStats: () => lastStats,
@@ -509,4 +549,10 @@ async function init() {
     }
 }
 
-init();
+if (typeof globalThis.jQuery === 'function') {
+    globalThis.jQuery(() => { init(); });
+} else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { init(); });
+} else {
+    init();
+}

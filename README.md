@@ -1,6 +1,8 @@
 # Header Shield / 头部护盾 — SillyTavern 扩展
 
-把原来的“脚本库脚本”改成了真正的 SillyTavern 第三方扩展。当前版本 1.1.1，默认期望模型为 `gemini-4-argon`。
+把原来的“脚本库脚本”改成了真正的 SillyTavern 第三方扩展。当前版本 1.1.3，默认期望模型为 `gemini-4-argon`。
+
+1.1.3 修了设置面板出不来的根本原因：之前 `index.js` 写死了错误的文件夹名 `third-party/header-shield` 去取 `settings.html`，实际装上的文件夹是 `third-party/sillytavern-header-shield`，所以取不到，面板一直不出，而护盾本身照常跑。现在改成官方写法 `context.renderExtensionTemplateAsync('third-party/sillytavern-header-shield', 'settings')`，和同机上能正常显示的 Memory Layers 用的同一套方法，面板也改成了酒馆标准的 `inline-drawer` 折叠行。
 
 ## 操作面板在哪里
 
